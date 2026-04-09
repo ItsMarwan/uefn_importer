@@ -39,7 +39,7 @@ A: sure. here it is https://www.virustotal.com/gui/file/3cd402f77cf19faf1ba9828d
 1. Clone this repository:
 
 ```bash
-git clone https://github.com/ItsMarwanUEFN/uefn_importer.git
+git clone https://github.com/ItsMarwan/uefn_importer.git
 cd uefn_importer
 ```
 

@@ -2,6 +2,25 @@
 
 A simple GUI tool to import `.uasset` and `.umap` files into your [UEFN](https://www.epicgames.com/fortnite/unreal-editor) projects. Designed for quick asset management, drag-and-drop support, and easy ZIP/folder imports.
 
+## Compile the code
+
+use this command while having the directory open in the terminal.
+
+```bash
+pyinstaller --icon=images/window.png --onefile --windowed uefn_importer.py --add-data "images/window.png;images"
+```
+
+a folder called **dist** will be created. open it then youll find the exe.
+
+Q: why compile on your own?
+A: you could just use the one on the releases but virustotal just says its a virus. so this is why im telling you how to build it on your own so you dont feel scared or sth.
+
+Q: why does it have a "virus"?
+A: because the library pyinstaller gets reported as virus even if you compile it on your own. this doesnt mean the installer is a virus but rather showing you that the scans on virus total are false-positive.
+
+Q: can i see the virustotal scan?
+A: sure. here it is https://www.virustotal.com/gui/file/3cd402f77cf19faf1ba9828d9afa74f2f53e67de0328651705e5e857e83a04e4?nocache=1
+
 ---
 
 ## Features

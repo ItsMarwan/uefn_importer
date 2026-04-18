@@ -7,7 +7,7 @@ A simple GUI tool to import `.uasset` and `.umap` files into your [UEFN](https:/
 use this command while having the directory open in the terminal.
 
 ```bash
-pyinstaller --icon=images/window.png --onefile --windowed uefn_importer.py --add-data "images/window.png;images"
+pyinstaller --icon=images/window.png --onefile --windowed src/uefn_importer.py --add-data "images/window.png;images"
 ```
 
 a folder called **dist** will be created. open it then youll find the exe.
@@ -28,6 +28,8 @@ A: sure. here it is https://www.virustotal.com/gui/file/3cd402f77cf19faf1ba9828d
 * Import individual `.uasset` or `.umap` files, entire folders, or ZIP archives.
 * Drag-and-drop support (if `tkinterdnd2` is installed).
 * Save your UEFN project directory and app settings.
+* Browse and select UEFN projects with the new project picker popup.
+* Scrollable projects tab with project stats and dynamic layout.
 * Light, dark, or system-themed UI.
 * Progress bar and status updates during import.
 * Simple configuration via `config.json`.
@@ -54,7 +56,7 @@ pip install tkinterdnd2
 3. Run the app:
 
 ```bash
-python main.py
+python src/uefn_importer.py
 ```
 
 ---

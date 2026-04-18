@@ -5,7 +5,7 @@
 
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
-import os, sys, json, shutil, zipfile, tempfile, threading, webbrowser, re, ctypes
+import os, sys, json, shutil, zipfile, tempfile, threading, webbrowser, re, ctypes, base64
 
 def resource_pth(rel_path):
     try: base_path = sys._MEIPASS
@@ -33,21 +33,31 @@ except ImportError:
     BaseWin = tk.Tk
 
 def get_def_cfg():
-    b = os.path.dirname(os.path.abspath(sys.argv[0]))
-    return os.path.join(b, "config.json")
+    docs = os.path.join(os.path.expanduser("~"), "Documents", "uefn_importer")
+    os.makedirs(docs, exist_ok=True)
+    return os.path.join(docs, "config.json")
 
 def fetchConfig(pth=None):
     pth = pth or get_def_cfg()
+    default_uefn_dir = os.path.join(os.path.expanduser("~"), "Documents", "Fortnite Projects")
     def_vals = {
-        'uefn_project_dir': "",
+        'uefn_project_dir': default_uefn_dir,
         'warn_unsupported': True,
         'theme': 'system',
         'config_location': pth,
+        'project_details': {},
     }
     if os.path.isfile(pth):
         try:
             with open(pth, 'r', encoding='utf-8') as f:
-                file_data = json.load(f)
+                data = f.read()
+            # Try to decode as base64 (new format)
+            try:
+                decrypted_data = base64.b64decode(data).decode('utf-8')
+                file_data = json.loads(decrypted_data)
+            except:
+                # If fails, assume it's plain JSON (old format)
+                file_data = json.loads(data)
             for k, v in def_vals.items(): file_data.setdefault(k, v)
             return file_data
         except Exception as e:
@@ -60,7 +70,10 @@ def write_cfg_to_disk(cfgObj):
     try:
         parent_dir = os.path.dirname(os.path.abspath(p))
         if parent_dir: os.makedirs(parent_dir, exist_ok=True)
-        with open(p, 'w', encoding='utf-8') as f: json.dump(cfgObj, f, indent=2)
+        json_str = json.dumps(cfgObj, indent=2)
+        encrypted_data = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
+        with open(p, 'w', encoding='utf-8') as f:
+            f.write(encrypted_data)
         return True
     except Exception as err:
         messagebox.showerror('Config Error', f"Could not save config:\n{err}")
@@ -188,6 +201,7 @@ class App(BaseWin):
         self.tmp_folder_dir = None
         self.tog_list = []
         self.radio_list = []
+        self.projNameVar = tk.StringVar()
 
         self.setupTheStyles()
         
@@ -202,58 +216,116 @@ class App(BaseWin):
         self.push_colors()
 
         uefn_pth = self.myCfg.get('uefn_project_dir')
-        if not uefn_pth or not os.path.isdir(uefn_pth):
-            self.after(150, self.do_first_launch_screen)
+        if not uefn_pth or not os.path.isdir(uefn_pth) or not self.has_projects(uefn_pth):
+            default_pth = os.path.join(os.path.expanduser("~"), "Documents", "Fortnite Projects")
+            if os.path.isdir(default_pth) and self.has_projects(default_pth):
+                self.myCfg['uefn_project_dir'] = default_pth
+                write_cfg_to_disk(self.myCfg)
+            else:
+                self.after(150, self.do_first_launch_screen)
+
+    def has_projects(self, pth):
+        try:
+            for item in os.listdir(pth):
+                item_path = os.path.join(pth, item)
+                if os.path.isdir(item_path):
+                    uefn_file = os.path.join(item_path, item + '.uefnproject')
+                    if os.path.isfile(uefn_file):
+                        return True
+        except: pass
+        return False
 
     def setupTheStyles(self):
         self.myStyle = ttk.Style(self)
         try: self.myStyle.theme_use('clam')
         except Exception: pass
 
-    def push_colors(self):
+    def push_colors(self, old_clr=None):
         clr = self.clr
         self.configure(bg=clr['bg'])
         
         self.myStyle.configure('.', background=clr['bg'], foreground=clr['text'], fieldbackground=clr['entry_bg'], troughcolor=clr['surface2'], bordercolor=clr['border'], lightcolor=clr['bg'], darkcolor=clr['bg'], focuscolor=clr['bg'], font=('Segoe UI', 10))
         
-        self.myStyle.configure('TNotebook', background=clr['bg'], borderwidth=0, tabmargins=0, lightcolor=clr['bg'], darkcolor=clr['bg'])
-        self.myStyle.configure('TNotebook.Tab', background=clr['surface2'], foreground=clr['text_dim'], padding=(20, 9), borderwidth=0, font=('Segoe UI', 10), lightcolor=clr['surface2'], darkcolor=clr['surface2'], focuscolor=clr['surface'])
+        self.myStyle.configure('TNotebook', background=clr['bg'], borderwidth=0, tabmargins=0, relief='flat', lightcolor=clr['bg'], darkcolor=clr['bg'])
+        self.myStyle.configure('TNotebook.Tab', background=clr['surface2'], foreground=clr['text_dim'], padding=(20, 9), borderwidth=0, relief='flat', font=('Segoe UI', 10), lightcolor=clr['surface2'], darkcolor=clr['surface2'], focuscolor=clr['surface'])
         self.myStyle.map('TNotebook.Tab', background=[('selected', clr['surface']), ('active', clr['surface'])], foreground=[('selected', clr['text']), ('active', clr['text'])], lightcolor=[('selected', clr['surface'])], darkcolor=[('selected', clr['surface'])])
 
         self.myStyle.configure('TFrame', background=clr['bg'])
         self.myStyle.configure('TLabel', background=clr['bg'], foreground=clr['text'])
-        
+
+        self.myStyle.configure('TButton', background=clr['surface2'], foreground=clr['text'], borderwidth=0, focusthickness=0, relief='flat', padding=(14, 8), lightcolor=clr['surface2'], darkcolor=clr['surface2'])
         self.myStyle.configure('Accent.TButton', background=clr['accent'], foreground=clr['btn_fg'], borderwidth=0, focusthickness=0, relief='flat', font=('Segoe UI Semibold', 10), padding=(16, 9), lightcolor=clr['accent'], darkcolor=clr['accent'])
         self.myStyle.map('Accent.TButton', background=[('active', clr['accent_dim']), ('pressed', clr['accent_dim'])], foreground=[('active', '#ffffff'), ('pressed', '#ffffff')])
 
         self.myStyle.configure('Secondary.TButton', background=clr['surface2'], foreground=clr['text'], borderwidth=0, focusthickness=0, relief='flat', font=('Segoe UI', 10), padding=(14, 8), lightcolor=clr['surface2'], darkcolor=clr['surface2'])
         self.myStyle.map('Secondary.TButton', background=[('active', clr['border']), ('pressed', clr['border'])], foreground=[('active', clr['text'])])
 
-        self.myStyle.configure('TEntry', fieldbackground=clr['entry_bg'], foreground=clr['entry_fg'], bordercolor=clr['border'], relief='flat', padding=(8, 7), lightcolor=clr['entry_bg'], darkcolor=clr['entry_bg'])
-        self.myStyle.map('TEntry', bordercolor=[('focus', clr['accent'])])
+        self.myStyle.configure('TEntry', background=clr['entry_bg'], fieldbackground=clr['entry_bg'], foreground=clr['entry_fg'], bordercolor=clr['border'], relief='flat', padding=(8, 7), lightcolor=clr['entry_bg'], darkcolor=clr['entry_bg'])
+        self.myStyle.map('TEntry', fieldbackground=[('readonly', clr['entry_bg']), ('disabled', clr['entry_bg']), ('!disabled', clr['entry_bg'])], foreground=[('readonly', clr['entry_fg']), ('disabled', clr['entry_fg'])], bordercolor=[('focus', clr['accent'])])
+
+        self.myStyle.configure('TScrollbar', troughcolor=clr['surface2'], background=clr['bg'], bordercolor=clr['border'], arrowcolor=clr['text'])
+        self.myStyle.configure('Vertical.TScrollbar', troughcolor=clr['surface2'], background=clr['bg'], bordercolor=clr['border'], arrowcolor=clr['text'])
+        self.myStyle.configure('Horizontal.TScrollbar', troughcolor=clr['surface2'], background=clr['bg'], bordercolor=clr['border'], arrowcolor=clr['text'])
 
         self.myStyle.configure('TProgressbar', troughcolor=clr['surface2'], background=clr['accent'], borderwidth=0, thickness=4, lightcolor=clr['accent'], darkcolor=clr['accent'])
 
-        self.color_da_tree(self)
+        self.color_da_tree(self, old_clr)
+        for t in self.tog_list: t.updateColors(self.clr)
+        for r in self.radio_list: r.updateColors(self.clr)
+        self.paint_drop_zone()
 
-    def color_da_tree(self, w):
+    def translate_theme_color(self, value, old_clr, new_clr):
+        if not old_clr:
+            return value
+        if value == old_clr['bg']:
+            return new_clr['bg']
+        if value == old_clr['surface']:
+            return new_clr['surface']
+        if value == old_clr['surface2']:
+            return new_clr['surface2']
+        if value == old_clr['border']:
+            return new_clr['border']
+        if value == old_clr['text']:
+            return new_clr['text']
+        if value == old_clr['text_dim']:
+            return new_clr['text_dim']
+        if value == old_clr['entry_bg']:
+            return new_clr['entry_bg']
+        if value == old_clr['entry_fg']:
+            return new_clr['entry_fg']
+        return value
+
+    def color_da_tree(self, w, old_clr=None):
         c = self.clr
         cls_name = w.__class__.__name__
         try:
-            if cls_name == 'Frame': w.configure(bg=c['bg'])
-            elif cls_name == 'Label': w.configure(bg=c['bg'], fg=c['text'])
-            elif cls_name == 'Canvas': w.configure(bg=c['bg'])
+            if cls_name == 'Frame':
+                current_bg = w.cget('bg')
+                w.configure(bg=self.translate_theme_color(current_bg, old_clr, c))
+            elif cls_name == 'Label':
+                current_bg = w.cget('bg')
+                current_fg = w.cget('fg')
+                w.configure(bg=self.translate_theme_color(current_bg, old_clr, c), fg=self.translate_theme_color(current_fg, old_clr, c))
+            elif cls_name == 'Canvas':
+                current_bg = w.cget('bg')
+                w.configure(bg=self.translate_theme_color(current_bg, old_clr, c))
+            elif cls_name == 'Listbox':
+                w.configure(bg=c['surface'], fg=c['text'], selectbackground=c['accent'])
         except: pass
-        for kids in w.winfo_children(): self.color_da_tree(kids)
+        for kids in w.winfo_children():
+            self.color_da_tree(kids, old_clr)
 
     def make_GUI(self):
         self.noteBook = ttk.Notebook(self)
         self.noteBook.pack(fill='both', expand=True)
         self.tab1 = ttk.Frame(self.noteBook)
         self.tab_settings_lmao = ttk.Frame(self.noteBook)
+        self.tab_projects = ttk.Frame(self.noteBook)
         self.noteBook.add(self.tab1, text='  Import  ')
+        self.noteBook.add(self.tab_projects, text='  Projects  ')
         self.noteBook.add(self.tab_settings_lmao, text='  Settings  ')
         self.buildImportTab()
+        self.buildProjectsTab()
         self.build_settings_Tab()
 
     def buildImportTab(self):
@@ -306,12 +378,10 @@ class App(BaseWin):
 
         p_row = tk.Frame(bdy, bg=c['bg'])
         p_row.pack(fill='x')
-        tk.Label(p_row, text='Project Name', bg=c['bg'], fg=c['text'], font=('Segoe UI Semibold', 10), width=14, anchor='w').pack(side='left')
-        self.projNameVar = tk.StringVar()
-        ttk.Entry(p_row, textvariable=self.projNameVar, width=30).pack(side='left', padx=(8, 0))
-        self.foundVarStr = tk.StringVar()
-        self.lbl_found_msg = tk.Label(p_row, textvariable=self.foundVarStr, bg=c['bg'], fg=c['success'], font=('Segoe UI', 10))
-        self.lbl_found_msg.pack(side='left', padx=(14, 0))
+        tk.Label(p_row, text='Selected Project', bg=c['bg'], fg=c['text'], font=('Segoe UI Semibold', 10), width=16, anchor='w').pack(side='left')
+        self.selectedProjVar = tk.StringVar(value='None selected')
+        tk.Label(p_row, textvariable=self.selectedProjVar, bg=c['bg'], fg=c['text'], font=('Segoe UI', 10)).pack(side='left', padx=(8, 0))
+        ttk.Button(p_row, text='Select Project', style='Secondary.TButton', command=self.select_project_popup).pack(side='right')
 
         i_row = tk.Frame(bdy, bg=c['bg'])
         i_row.pack(fill='x', pady=(14, 0))
@@ -346,6 +416,154 @@ class App(BaseWin):
         extracted = [x or y for x, y in matches]
         if extracted: self.handlePth(extracted[0])
 
+    def buildProjectsTab(self):
+        c = self.clr
+        tb = self.tab_projects
+
+        headr = tk.Frame(tb, bg=c['bg'])
+        headr.pack(fill='x', padx=28, pady=(22, 0))
+        tk.Label(headr, text='Projects', bg=c['bg'], fg=c['text'], font=('Segoe UI Semibold', 20)).pack(anchor='w')
+        tk.Label(headr, text='Manage your UEFN projects', bg=c['bg'], fg=c['text_dim'], font=('Segoe UI', 10)).pack(anchor='w', pady=(3, 0))
+
+        tk.Frame(tb, bg=c['border'], height=1).pack(fill='x', pady=(16, 0))
+
+        bdy = tk.Frame(tb, bg=c['bg'])
+        bdy.pack(fill='both', expand=True, padx=28, pady=20)
+
+        refresh_frame = tk.Frame(bdy, bg=c['bg'])
+        refresh_frame.pack(fill='x', pady=(0, 10))
+        ttk.Button(refresh_frame, text='Refresh', style='Secondary.TButton', command=self.refresh_projects).pack(anchor='e')
+
+        # Scrollable canvas
+        self.canvas = tk.Canvas(bdy, bg=c['bg'], highlightthickness=0)
+        scrollbar = ttk.Scrollbar(bdy, orient='vertical', command=self.canvas.yview)
+        self.canvas.configure(yscrollcommand=scrollbar.set)
+
+        self.canvas.pack(side='left', fill='both', expand=True)
+        scrollbar.pack(side='right', fill='y')
+
+        self.projects_frame = tk.Frame(self.canvas, bg=c['bg'])
+        self.projects_window = self.canvas.create_window((0, 0), window=self.projects_frame, anchor='nw')
+        self.projects_frame.bind('<Configure>', self.on_projects_frame_configure)
+
+        self.load_projects()
+
+        # Bind resize and mouse wheel
+        self.canvas.bind('<Configure>', self.on_canvas_resize)
+        self.bind_all('<MouseWheel>', self._on_mousewheel)
+
+    def on_canvas_resize(self, event):
+        try:
+            self.canvas.itemconfigure(self.projects_window, width=event.width)
+        except Exception:
+            pass
+        self.load_projects()
+
+    def on_projects_frame_configure(self, event):
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+
+    def _on_mousewheel(self, event):
+        self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+
+    def refresh_projects(self):
+        # Clear cached details to force recalculation
+        self.myCfg['project_details'] = {}
+        write_cfg_to_disk(self.myCfg)
+        self.load_projects()
+
+    def load_projects(self):
+        c = self.clr
+        for widget in self.projects_frame.winfo_children():
+            widget.destroy()
+
+        uefn_dir = self.myCfg.get('uefn_project_dir', '')
+        if not uefn_dir or not os.path.isdir(uefn_dir):
+            lbl = tk.Label(self.projects_frame, text='UEFN projects directory not set.', bg=c['bg'], fg=c['text_dim'])
+            lbl.grid(row=0, column=0, sticky='w')
+            self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+            return
+
+        projects = []
+        for item in os.listdir(uefn_dir):
+            item_path = os.path.join(uefn_dir, item)
+            if os.path.isdir(item_path):
+                uefn_file = os.path.join(item_path, item + '.uefnproject')
+                if os.path.isfile(uefn_file):
+                    projects.append(item)
+
+        if not projects:
+            lbl = tk.Label(self.projects_frame, text='No projects found.', bg=c['bg'], fg=c['text_dim'])
+            lbl.grid(row=0, column=0, sticky='w')
+            self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+            return
+
+        # Get canvas width for dynamic columns
+        canvas_width = max(1, self.canvas.winfo_width() - 10)
+        if canvas_width <= 1:
+            canvas_width = 600  # default for first render
+        card_width = 170
+        max_cols = max(1, canvas_width // card_width)
+
+        lbl = tk.Label(self.projects_frame, text=f'Detected {len(projects)} project(s).', bg=c['bg'], fg=c['text'])
+        lbl.grid(row=0, column=0, columnspan=max_cols, sticky='w', pady=(0, 10))
+
+        # Load or calculate details
+        details = self.myCfg.get('project_details', {})
+        updated_details = details.copy()
+
+        row = 1
+        col = 0
+        for proj in projects:
+            proj_details = details.get(proj, {'folders': 0, 'uassets': 0})
+            folders = proj_details['folders']
+            uassets = proj_details['uassets']
+
+            if proj not in details:
+                # Start thread to calculate
+                def calc(p=proj, u=uefn_dir):
+                    f, ua = self.get_project_stats(u, p)
+                    self.myCfg['project_details'][p] = {'folders': f, 'uassets': ua}
+                    write_cfg_to_disk(self.myCfg)
+                threading.Thread(target=calc, daemon=True).start()
+
+            card = tk.Frame(self.projects_frame, bg=c['surface'], padx=10, pady=10, relief='raised', bd=1)
+            card.grid(row=row, column=col, padx=5, pady=5, sticky='nsew')
+            tk.Label(card, text=proj, bg=c['surface'], fg=c['text'], font=('Segoe UI Semibold', 12)).pack()
+            tk.Label(card, text=f'Folders: {folders}\nUAssets: {uassets}', bg=c['surface'], fg=c['text_dim'], font=('Segoe UI', 9)).pack(pady=(5, 0))
+            ttk.Button(card, text='Select', style='Secondary.TButton', command=lambda p=proj: self.select_project(p)).pack(pady=(5, 0))
+
+            col += 1
+            if col >= max_cols:
+                col = 0
+                row += 1
+
+        # Update config with details
+        self.myCfg['project_details'] = updated_details
+        write_cfg_to_disk(self.myCfg)
+
+        # Make grid responsive
+        for i in range(max_cols):
+            self.projects_frame.grid_columnconfigure(i, weight=1)
+
+        self.projects_frame.update_idletasks()
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+
+    def select_project(self, proj):
+        self.projNameVar.set(proj)
+        self.noteBook.select(self.tab1)
+        self.print_status(f"Selected project: {proj}", "success")
+
+    def get_project_stats(self, uefn_dir, proj):
+        content_dir = os.path.join(uefn_dir, proj, 'Plugins', proj, 'Content')
+        if not os.path.isdir(content_dir):
+            return 0, 0
+        folders = 0
+        uassets = 0
+        for root, dirs, files in os.walk(content_dir):
+            folders += len(dirs)
+            uassets += sum(1 for f in files if f.lower().endswith('.uasset'))
+        return folders, uassets
+
     def build_settings_Tab(self):
         c = self.clr
         tb = self.tab_settings_lmao
@@ -371,9 +589,8 @@ class App(BaseWin):
         c_r = tk.Frame(main_bod, bg=c['bg'])
         c_r.pack(fill='x', pady=(4, 4))
         self.cfgLocVar = tk.StringVar(value=self.myCfg.get('config_location', get_def_cfg()))
-        ttk.Entry(c_r, textvariable=self.cfgLocVar, width=52).pack(side='left', padx=(0, 8))
-        ttk.Button(c_r, text='Browse', style='Secondary.TButton', command=self.search_cfg_loc).pack(side='left')
-        tk.Label(main_bod, text='config.json is stored next to this application by default.', bg=c['bg'], fg=c['text_dim'], font=('Segoe UI', 8)).pack(anchor='w', pady=(2, 14))
+        ttk.Entry(c_r, textvariable=self.cfgLocVar, width=52, state='readonly').pack(side='left', padx=(0, 8))
+        tk.Label(main_bod, text='Config is stored in Documents\\uefn_importer\\config.json and is encrypted.', bg=c['bg'], fg=c['text_dim'], font=('Segoe UI', 8)).pack(anchor='w', pady=(2, 14))
 
         self.make_section(main_bod, 'Warnings')
         w_r = tk.Frame(main_bod, bg=c['bg'])
@@ -419,22 +636,18 @@ class App(BaseWin):
             messagebox.showwarning("Invalid Path", "The UEFN project directory does not exist.")
             return
 
-        oldPath = self.myCfg.get('config_location')
-        newPath = self.cfgLocVar.get().strip() or get_def_cfg()
-
         self.myCfg['uefn_project_dir'] = uFol
         self.myCfg['warn_unsupported'] = self.chk_warn.get()
         self.myCfg['theme'] = self.cur_theme_var.get()
-        self.myCfg['config_location'] = newPath
-
-        if oldPath and oldPath != newPath and os.path.isfile(oldPath):
-            try: os.remove(oldPath)
-            except: pass
 
         if write_cfg_to_disk(self.myCfg):
+            old_clr = self.clr
             self.current_theme = getSystem_Theme(self.myCfg['theme'])
             self.clr = THEME_COLORS[self.current_theme]
-            self.push_colors()
+            self.push_colors(old_clr)
+            for t in self.tog_list: t.updateColors(self.clr)
+            for r in self.radio_list: r.updateColors(self.clr)
+            self.load_projects()  # Reload projects if dir changed
             self.print_status("Settings saved.", "success")
             messagebox.showinfo("Settings", "Settings saved.")
 
@@ -470,6 +683,7 @@ class App(BaseWin):
             self.myCfg['uefn_project_dir'] = txt
             self.uefnDirVar.set(txt)
             write_cfg_to_disk(self.myCfg)
+            self.load_projects()
             w.destroy()
 
         ttk.Button(w, text="Continue", style='Accent.TButton', command=_c).pack(pady=20)
@@ -489,7 +703,6 @@ class App(BaseWin):
         for f in ff: shutil.copy2(f, tmp)
         self.sel_pth = tmp
         self.pathVar.set(f"Selected {len(ff)} file(s)")
-        self.foundVarStr.set("")
         self.print_status(f"Loaded {len(ff)} file(s).", "dim")
 
     def handlePth(self, p):
@@ -498,7 +711,6 @@ class App(BaseWin):
         elif os.path.isdir(p):
             self.sel_pth = p
             self.pathVar.set(p)
-            self.foundVarStr.set("")
             self.print_status("Folder loaded.", "dim")
         else: messagebox.showwarning("Unsupported", "Please select a folder, a ZIP file, or .uasset/.umap files.")
 
@@ -521,9 +733,64 @@ class App(BaseWin):
 
     def zip_finished(self, zPath):
         self.progressBar.stop()
+        # Check if there's a single top-level folder
+        items = os.listdir(self.tmp_folder_dir)
+        if len(items) == 1 and os.path.isdir(os.path.join(self.tmp_folder_dir, items[0])):
+            self.sel_pth = os.path.join(self.tmp_folder_dir, items[0])
         self.pathVar.set(f"[ZIP] {zPath}")
-        self.foundVarStr.set("")
         self.print_status("ZIP extracted.", "success")
+
+    def select_project_popup(self):
+        c = self.clr
+        pop = tk.Toplevel(self)
+        pop.title("Select Project")
+        pop.geometry("400x300")
+        pop.resizable(False, False)
+        pop.grab_set()
+        pop.configure(bg=c['bg'])
+
+        tk.Label(pop, text="Choose a project:", bg=c['bg'], fg=c['text'], font=('Segoe UI Semibold', 12)).pack(pady=(20, 10))
+
+        list_frame = tk.Frame(pop, bg=c['surface'])
+        list_frame.pack(fill='both', expand=True, padx=20, pady=(0, 10))
+        scrollbar = tk.Scrollbar(list_frame)
+        scrollbar.pack(side='right', fill='y')
+        self.proj_listbox = tk.Listbox(list_frame, yscrollcommand=scrollbar.set, bg=c['surface'], fg=c['text'], selectbackground=c['accent'], relief='flat', font=('Segoe UI', 10))
+        self.proj_listbox.pack(side='left', fill='both', expand=True)
+        scrollbar.config(command=self.proj_listbox.yview)
+
+        # Populate list
+        uefn_dir = self.myCfg.get('uefn_project_dir', '')
+        if uefn_dir and os.path.isdir(uefn_dir):
+            for item in os.listdir(uefn_dir):
+                item_path = os.path.join(uefn_dir, item)
+                if os.path.isdir(item_path):
+                    uefn_file = os.path.join(item_path, item + '.uefnproject')
+                    if os.path.isfile(uefn_file):
+                        self.proj_listbox.insert('end', item)
+
+        btn_frame = tk.Frame(pop, bg=c['bg'])
+        btn_frame.pack(fill='x', padx=20, pady=(0, 20))
+
+        def select():
+            sel = self.proj_listbox.curselection()
+            if sel:
+                proj = self.proj_listbox.get(sel[0])
+                self.projNameVar.set(proj)
+                self.selectedProjVar.set(proj)
+                pop.destroy()
+
+        ttk.Button(btn_frame, text='Select', style='Accent.TButton', command=select).pack(side='left')
+
+        def manual():
+            file_path = filedialog.askopenfilename(title="Select .uefnproject file", filetypes=[("UEFN Project", "*.uefnproject")])
+            if file_path:
+                proj_name = os.path.basename(file_path).replace('.uefnproject', '')
+                self.projNameVar.set(proj_name)
+                self.selectedProjVar.set(proj_name)
+                pop.destroy()
+
+        ttk.Button(btn_frame, text="I don't see my project", style='Secondary.TButton', command=manual).pack(side='right')
 
     def trigger_import_logic(self):
         uDir = self.myCfg.get('uefn_project_dir', "").strip()
@@ -535,12 +802,19 @@ class App(BaseWin):
             return
         pNm = self.projNameVar.get().strip()
         if not pNm:
-            messagebox.showwarning("No Project Name", "Please enter the project name.")
+            messagebox.showwarning("No Project Selected", "Please select a project first.")
+            return
+
+        # Validate project
+        proj_dir = os.path.join(uDir, pNm)
+        uefn_file = os.path.join(proj_dir, pNm + '.uefnproject')
+        content_dir = os.path.join(proj_dir, 'Plugins', pNm, 'Content')
+        if not os.path.isfile(uefn_file) or not os.path.isdir(content_dir):
+            messagebox.showerror("Invalid Project", f"The project '{pNm}' is not valid. It must have a .uefnproject file and a Content folder.")
             return
 
         self.progressBar.start(12)
         self.print_status("Working...", "dim")
-        self.foundVarStr.set("")
 
         def w_thread2():
             try: self.execute_copy_routine(uDir, pNm)
@@ -551,6 +825,43 @@ class App(BaseWin):
 
         threading.Thread(target=w_thread2, daemon=True).start()
 
+    def ask_subfolder(self):
+        c = self.clr
+        pop = tk.Toplevel(self)
+        pop.title("Import Options")
+        pop.geometry("400x200")
+        pop.resizable(False, False)
+        pop.grab_set()
+        pop.configure(bg=c['bg'])
+
+        tk.Label(pop, text="Import into a subfolder?", bg=c['bg'], fg=c['text'], font=('Segoe UI Semibold', 12)).pack(pady=(20, 10))
+
+        result = [None]
+
+        def yes():
+            sub_pop = tk.Toplevel(pop)
+            sub_pop.title("Subfolder Name")
+            sub_pop.geometry("300x150")
+            sub_pop.resizable(False, False)
+            sub_pop.grab_set()
+            sub_pop.configure(bg=c['bg'])
+
+            tk.Label(sub_pop, text="Enter subfolder name:", bg=c['bg'], fg=c['text']).pack(pady=(20, 5))
+            name_var = tk.StringVar()
+            ttk.Entry(sub_pop, textvariable=name_var).pack(pady=(0, 10))
+            ttk.Button(sub_pop, text="OK", style='Accent.TButton', command=lambda: [result.__setitem__(0, name_var.get().strip()), sub_pop.destroy(), pop.destroy()]).pack(side='left', padx=10)
+            ttk.Button(sub_pop, text="Cancel", style='Secondary.TButton', command=lambda: [result.__setitem__(0, None), sub_pop.destroy(), pop.destroy()]).pack(side='right', padx=10)
+
+        def no():
+            result[0] = None
+            pop.destroy()
+
+        ttk.Button(pop, text="Yes", style='Accent.TButton', command=yes).pack(side='left', padx=20, pady=20)
+        ttk.Button(pop, text="No", style='Secondary.TButton', command=no).pack(side='right', padx=20, pady=20)
+
+        self.wait_window(pop)
+        return result[0] if result[0] else None
+
     def execute_copy_routine(self, uDir, pNm):
         src = self.sel_pth
         target_lw = pNm.lower()
@@ -558,7 +869,6 @@ class App(BaseWin):
         base_nm = os.path.basename(src.rstrip("/\\"))
         if base_nm.lower() == target_lw:
             a_root = src
-            self.after(0, lambda: self.display_match_res("exact"))
         else:
             fnd_sub = None
             for d_pth, dir_nms, _ in os.walk(src):
@@ -570,10 +880,8 @@ class App(BaseWin):
 
             if fnd_sub:
                 a_root = fnd_sub
-                self.after(0, lambda: self.display_match_res("sub"))
             else:
                 a_root = src
-                self.after(0, lambda: self.display_match_res("none"))
 
         inv_files = find_bad_exts(a_root)
         if inv_files and self.myCfg.get('warn_unsupported', True):
@@ -591,7 +899,16 @@ class App(BaseWin):
                 self.after(0, lambda: self.print_status("Import cancelled.", "dim"))
                 return
 
-        dst = os.path.join(uDir, pNm, "Plugins", pNm, "Content")
+            if not ans[0]:
+                self.after(0, lambda: self.print_status("Import cancelled.", "dim"))
+                return
+
+        subfolder = self.ask_subfolder()
+        dst_base = os.path.join(uDir, pNm, "Plugins", pNm, "Content")
+        if subfolder:
+            dst = os.path.join(dst_base, subfolder)
+        else:
+            dst = dst_base
         os.makedirs(dst, exist_ok=True)
 
         cnt = 0
@@ -608,19 +925,6 @@ class App(BaseWin):
         txtMsg = f"Done. Imported {cnt} file(s) to:\n{dst}"
         self.after(0, lambda: self.print_status(f"Done. Imported {cnt} file(s) to: {dst}", "success"))
         self.after(0, lambda: messagebox.showinfo("Import Complete", txtMsg))
-
-    def display_match_res(self, res_type):
-        c = self.clr
-        if res_type == 'exact':
-            self.foundVarStr.set("Found! (folder name matched)")
-            self.lbl_found_msg.configure(fg=c['success'])
-        elif res_type == 'sub':
-            self.foundVarStr.set("Found! (matched subfolder)")
-            self.lbl_found_msg.configure(fg=c['success'])
-        else:
-            self.foundVarStr.set("No match found, importing root folder")
-            self.lbl_found_msg.configure(fg=c['text_dim'])
-
 
     # man do i love the warn dialog. i cooked so hard on this 🥲
     def open_warn_modal(self, inv_files):
